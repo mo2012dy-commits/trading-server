@@ -1,4 +1,4 @@
-.....import os
+import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import ccxt
@@ -32,13 +32,9 @@ def dashboard():
     try:
         real_balance = exchange.fetch_balance()
         status = fetch_indicators()
-        
-        # --- نظام الرصد الذكي ---
         active_alerts = []
-        if status['rsi'] <= 30:
-            active_alerts.append({"type": "BUY", "msg": "فرصة شراء! الـ RSI منخفض جداً"})
-        elif status['rsi'] >= 70:
-            active_alerts.append({"type": "SELL", "msg": "فرصة بيع! الـ RSI مرتفع جداً"})
+        if status['rsi'] <= 30: active_alerts.append({"type": "BUY", "msg": "شراء! RSI منخفض"})
+        elif status['rsi'] >= 70: active_alerts.append({"type": "SELL", "msg": "بيع! RSI مرتفع"})
 
         current_pnl = 0
         for trade in paper_trades:
@@ -51,7 +47,7 @@ def dashboard():
             'real_equity': real_balance['info']['totalMarginBalance'],
             'market_price': status['price'],
             'market_rsi': status['rsi'],
-            'alerts': active_alerts, # إرسال التنبيهات هنا
+            'alerts': active_alerts,
             'paper_trades_count': len([t for t in paper_trades if t['status'] == 'OPEN']),
             'total_paper_pnl': round(current_pnl, 2)
         })
@@ -65,10 +61,9 @@ def place_paper_order():
         status = fetch_indicators()
         new_trade = {
             'id': len(paper_trades) + 1,
-            'symbol': data.get('symbol', 'BTC/USDT'),
+            'symbol': 'BTC/USDT',
             'side': data.get('side'),
             'entry_price': status['price'],
-            'amount': 0.001,
             'status': 'OPEN',
             'time': datetime.now().strftime("%H:%M:%S")
         }
@@ -76,15 +71,6 @@ def place_paper_order():
         return jsonify({'status': 'success', 'trade': new_trade})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
-
-@app.route('/kill', methods=['POST'])
-def kill_switch():
-    count = 0
-    for trade in paper_trades:
-        if trade['status'] == 'OPEN':
-            trade['status'] = 'CLOSED'
-            count += 1
-    return jsonify({'status': 'success', 'closed_paper_trades': count})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
