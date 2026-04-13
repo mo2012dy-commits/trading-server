@@ -4,10 +4,10 @@ import ccxt
 
 app = Flask(__name__)
 
-# الربط مع بينانس باستخدام المفاتيح المحمية في السيرفر
+# الربط مع بينانس باستخدام الأسماء المطابقة لـ Railway Variables عندك
 exchange = ccxt.binance({
     'apiKey': os.getenv('BINANCE_API_KEY'),
-    'secret': os.getenv('BINANCE_API_SECRET'),
+    'secret': os.getenv('BINANCE_SECRET_KEY'),
     'options': {'defaultType': 'future'},
     'enableRateLimit': True
 })
@@ -15,11 +15,11 @@ exchange = ccxt.binance({
 @app.route('/')
 def home():
     try:
-        # جلب بيانات المحفظة الحقيقية
+        # جلب بيانات المحفظة
         balance = exchange.fetch_balance()
         total_equity = balance['info']['totalMarginBalance']
         
-        # جلب الصفقات النشطة حالياً
+        # جلب الصفقات المفتوحة
         positions = exchange.fetch_positions()
         active_trades = []
         for pos in positions:
@@ -40,4 +40,5 @@ def home():
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=os.getenv('PORT', 5000))
+    # استخدام بورت Railway التلقائي
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
