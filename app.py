@@ -8,46 +8,49 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# إعداد منصة بينانس
+# إعداد الربط مع بينانس
 exchange = ccxt.binance()
 
-def fetch_data_and_analyze():
+def get_market_analysis(symbol='BTC/USDT'):
     try:
-        # 1. جلب الشموع الأخيرة (لحساب RSI دقيق)
-        bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='5m', limit=50)
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        # جلب بيانات الشموع (5 دقائق)
+        bars = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
+        df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'vol'])
         
-        # 2. حساب الـ RSI الحقيقي باستخدام pandas_ta
-        df['rsi'] = ta.rsi(df['close'], length=14)
-        current_rsi = df['rsi'].iloc[-1]
+        # حساب المؤشرات الفنية
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        df['EMA_20'] = ta.ema(df['close'], length=20)
+        
         current_price = df['close'].iloc[-1]
+        current_rsi = df['RSI'].iloc[-1]
         
-        # 3. نظام التنبيهات البسيط
+        # منطق التنبيهات الذكي
         alerts = []
         if current_rsi > 70:
-            alerts.append({"msg": "منطقة بيع - RSI مرتفع 🚨", "type": "SELL"})
+            alerts.append({"msg": "RSI مرتفع جداً - منطقة تشبع بيع 🚨", "type": "SELL"})
         elif current_rsi < 30:
-            alerts.append({"msg": "منطقة شراء - RSI منخفض ✅", "type": "BUY"})
-
+            alerts.append({"msg": "RSI منخفض جداً - فرصة شراء ✅", "type": "BUY"})
+            
         return {
-            "symbol": "BTC/USDT",
-            "price": str(current_price),
-            "rsi": str(round(current_rsi, 2)),
-            "balance": "901.34",  # سنربطها بالمحفظة لاحقاً
-            "pnl": "54.5",
-            "trades": "3",
-            "alerts": alerts
+            "symbol": symbol,
+            "price": float(current_price),
+            "rsi": round(float(current_rsi), 2),
+            "balance": 901.34, # سيتم ربطه لاحقاً بالرصيد الحي
+            "pnl": 54.5,
+            "trades": 3,
+            "alerts": alerts,
+            "trend": "صاعد" if current_price > df['EMA_20'].iloc[-1] else "هابط"
         }
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"خطأ في التحليل: {e}")
         return None
 
 @app.route('/status', methods=['GET'])
-def get_status():
-    data = fetch_data_and_analyze()
-    if data:
-        return jsonify(data)
-    return jsonify({"error": "Failed to fetch data"}), 500
+def status():
+    result = get_market_analysis()
+    if result:
+        return jsonify(result)
+    return jsonify({"error": "فشل في جلب البيانات"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
