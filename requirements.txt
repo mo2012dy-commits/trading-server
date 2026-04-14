@@ -2,5 +2,4 @@ flask
 flask-cors
 ccxt
 pandas
-pandas-ta
-gunicorn
+pandas_ta
