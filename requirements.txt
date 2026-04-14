@@ -3,3 +3,4 @@ flask-cors
 ccxt
 pandas
 pandas_ta
+python-dotenv
