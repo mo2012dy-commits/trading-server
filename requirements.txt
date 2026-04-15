@@ -1,7 +1,6 @@
-flask
-flask-cors
+Flask
+Flask-Cors
 ccxt
 pandas
-pandas_ta
-python-dotenv
-gunicorn
+pandas-ta
+apscheduler
