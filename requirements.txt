@@ -1,5 +1,7 @@
 flask
 flask-cors
+flask-socketio
+eventlet
 ccxt
 pandas
 pandas_ta
