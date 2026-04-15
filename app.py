@@ -1,6 +1,9 @@
 import os
+import time
+import threading
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import ccxt
 from decimal import Decimal, getcontext, ROUND_HALF_UP
 from datetime import datetime
@@ -11,18 +14,20 @@ from loguru import logger
 getcontext().prec = 28
 app = Flask(__name__)
 CORS(app)
+# إعداد SocketIO مع دعم eventlet للأداء العالي
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 trade_lock = Lock()
 
 # 2. جلب المفاتيح من Railway Variables
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
 
-# إعداد الربط مع Binance Futures حصراً لضمان دقة الأسعار
+# إعداد الربط مع Binance Futures
 exchange = ccxt.binance({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_SECRET_KEY,
     'enableRateLimit': True,
-    'options': {'defaultType': 'future'} # تحديد وضع العقود الآجلة
+    'options': {'defaultType': 'future'}
 })
 
 class FortressPortfolio:
@@ -30,7 +35,6 @@ class FortressPortfolio:
         self.initial_deposit = Decimal(str(initial_balance))
         self.cash_balance = Decimal(str(initial_balance))
         self.peak_equity = Decimal(str(initial_balance))
-        self.ledger = []
         self.open_trades = {}
         self.MAX_DRAWDOWN_PCT = Decimal("20.0")
 
@@ -38,13 +42,11 @@ class FortressPortfolio:
         return Decimal(str(value)).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
 
     def get_snapshot(self):
-        # جلب أسعار مارك (Mark Prices) للفيوتشر لضمان دقة حساب الأرباح والتصفية
         current_prices = {}
         symbols = list(set([t['symbol'] for t in self.open_trades.values()]))
         
         try:
             if symbols:
-                # fetch_tickers في وضع الفيوتشر تجلب أسعار العقود الآجلة الحالية
                 tickers = exchange.fetch_tickers(symbols)
                 for s in symbols:
                     current_prices[s] = tickers[s]['last']
@@ -80,10 +82,25 @@ class FortressPortfolio:
             "server_time": datetime.now().isoformat()
         }
 
-# إنشاء المحفظة (ابدأ بالرصيد المبدئي الذي تفضله)
+# إنشاء المحفظة برصيد مبدئي 1000
 portfolio = FortressPortfolio(1000)
 
-# --- مسارات الـ API (Endpoints) ---
+# --- وظيفة البث اللحظي (Background Broadcast) ---
+def background_broadcaster():
+    """ترسل تحديثات المحفظة للجوال كل ثانية تلقائياً"""
+    while True:
+        try:
+            with trade_lock:
+                snapshot = portfolio.get_snapshot()
+                socketio.emit('portfolio_update', snapshot)
+        except Exception as e:
+            logger.error(f"Broadcast Error: {e}")
+        time.sleep(1)
+
+# تشغيل البث في خيط منفصل
+threading.Thread(target=background_broadcaster, daemon=True).start()
+
+# --- مسارات الـ API التقليدية ---
 
 @app.route('/')
 def health_check():
@@ -94,30 +111,20 @@ def get_portfolio():
     with trade_lock:
         return jsonify(portfolio.get_snapshot())
 
-# مسار لجلب شارت الفيوتشر الحقيقي (Candlesticks)
-@app.route('/api/chart/<symbol>', methods=['GET'])
-def get_futures_chart(symbol):
-    try:
-        timeframe = request.args.get('timeframe', '1h')
-        # جلب بيانات الشموع من محرك الفيوتشر حصراً
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=100)
-        return jsonify(ohlcv)
-    except Exception as e:
-        logger.error(f"Chart Error for {symbol}: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-
 @app.route('/api/trade/open', methods=['POST'])
 def open_trade():
     data = request.json
     with trade_lock:
         trade_id = f"T_{datetime.now().timestamp()}"
         portfolio.open_trades[trade_id] = {
-            "symbol": data['symbol'].upper(), # التأكد من صيغة الرمز مثل BTC/USDT أو BTCUSDT
+            "symbol": data['symbol'].upper(),
             "side": data['side'].upper(),
             "qty": Decimal(str(data['qty'])),
             "entry_price": Decimal(str(data['entry_price'])),
             "leverage": Decimal(str(data['leverage']))
         }
+        # إرسال تحديث فوري بعد فتح الصفقة
+        socketio.emit('portfolio_update', portfolio.get_snapshot())
         return jsonify({"status": "success", "trade_id": trade_id})
 
 @app.route('/api/trade/close', methods=['POST'])
@@ -133,13 +140,21 @@ def close_trade():
             raw_pnl = (Decimal(str(exit_price)) - trade['entry_price']) * trade['qty'] * direction
             margin_reclaimed = (trade['qty'] * trade['entry_price']) / trade['leverage']
             
-            # تحديث الرصيد وتسجيل العملية
             portfolio.cash_balance += (margin_reclaimed + raw_pnl)
             del portfolio.open_trades[trade_id]
             
+            # إرسال تحديث فوري بعد إغلاق الصفقة
+            socketio.emit('portfolio_update', portfolio.get_snapshot())
             return jsonify({"status": "success", "new_balance": str(portfolio.cash_balance)})
         return jsonify({"status": "error", "message": "Trade not found"}), 404
 
+# --- معالجة أحداث SocketIO ---
+@socketio.on('connect')
+def handle_connect():
+    logger.info("جهاز جديد اتصل بالمصنع")
+    emit('portfolio_update', portfolio.get_snapshot())
+
 if __name__ == "__main__":
+    # استخدام socketio.run بدلاً من app.run لدعم البث المباشر
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    socketio.run(app, host='0.0.0.0', port=port)
