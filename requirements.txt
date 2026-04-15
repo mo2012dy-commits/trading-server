@@ -1,7 +1,7 @@
-gunicorn
-Flask
-Flask-Cors
+flask
+flask-cors
 ccxt
 pandas
 pandas-ta
 apscheduler
+python-dotenv
