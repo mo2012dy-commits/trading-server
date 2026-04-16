@@ -4,8 +4,7 @@ flask-socketio
 eventlet
 ccxt
 pandas
-pandas_ta
-apscheduler
+pandas-ta
+loguru
 python-dotenv
 gunicorn
-loguru
