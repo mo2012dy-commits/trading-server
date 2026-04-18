@@ -1,37 +1,37 @@
-from flask import Flask, jsonify
-from flask_socketio import SocketIO, emit
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-import threading
+import os
+from binance.client import Client
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# مسار لجلب الحساب بنظام الـ REST القديم عشان نضمن الشغل
+# جلب المفاتيح من بيئة العمل (Railway)
+API_KEY = os.getenv('BINANCE_API_KEY')
+API_SECRET = os.getenv('BINANCE_SECRET_KEY')
+
 @app.route('/account', methods=['GET'])
 def get_account():
-    # هنا بنحط رصيد وهمي مؤقتاً للتأكد من الربط، ثم نربطه بمحرك بينانس
-    return jsonify({
-        "status": "success",
-        "account": {
-            "balance": 15450.75,  # جرب تحط رقم مميز عشان تعرف انه اشتغل
-            "pnl": 125.5,
-            "available": 15000.00
-        }
-    })
-
-@socketio.on('connect')
-def handle_connect():
-    print("Mobile Connected!")
-    emit('system_status', {'status': 'SAFE'})
-
-# كود الاستجابة لطلب الرصيد عبر السوكيت
-@socketio.on('get_account_data')
-def handle_account_request():
-    emit('account_data', {
-        "balance": 15450.75,
-        "pnl": 125.5
-    })
+    try:
+        # الربط الفعلي مع بينانس
+        client = Client(API_KEY, API_SECRET)
+        
+        # جلب بيانات الحساب (Futures)
+        acc = client.futures_account()
+        
+        return jsonify({
+            "status": "success",
+            "account": {
+                "balance": float(acc['totalWalletBalance']),
+                "available": float(acc['availableBalance']),
+                "pnl": float(acc['totalUnrealizedProfit']),
+                "pnlPct": (float(acc['totalUnrealizedProfit']) / float(acc['totalWalletBalance']) * 100) if float(acc['totalWalletBalance']) > 0 else 0
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000)
+    # مهم لـ Railway عشان يعرف المنفذ الصحيح
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
