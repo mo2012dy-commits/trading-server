@@ -1,10 +1,4 @@
 flask
 flask-cors
-flask-socketio
-eventlet
-ccxt
-pandas
-pandas-ta
-loguru
-python-dotenv
+python-binance
 gunicorn
