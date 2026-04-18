@@ -1,26 +1,37 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from config import Config
 import threading
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# استدعاء المحركات (سنقوم ببرمجتها في الخطوة التالية)
-# من المهم أن يكون الربط هنا لحظياً (إضافة 56)
+# مسار لجلب الحساب بنظام الـ REST القديم عشان نضمن الشغل
+@app.route('/account', methods=['GET'])
+def get_account():
+    # هنا بنحط رصيد وهمي مؤقتاً للتأكد من الربط، ثم نربطه بمحرك بينانس
+    return jsonify({
+        "status": "success",
+        "account": {
+            "balance": 15450.75,  # جرب تحط رقم مميز عشان تعرف انه اشتغل
+            "pnl": 125.5,
+            "available": 15000.00
+        }
+    })
 
 @socketio.on('connect')
 def handle_connect():
-    print("Mobile Connected to Factory $ Engine")
-    emit('system_status', {'status': 'SAFE', 'mode': Config.DEFAULT_MODE})
+    print("Mobile Connected!")
+    emit('system_status', {'status': 'SAFE'})
 
-@socketio.on('emergency_stop')
-def handle_emergency():
-    # إضافة 53: مفتاح القطع الفوري
-    print("EMERGENCY STOP TRIGGERED FROM MOBILE")
-    # هنا سيتم استدعاء أمر إغلاق كافة الصفقات من engine_trade
+# كود الاستجابة لطلب الرصيد عبر السوكيت
+@socketio.on('get_account_data')
+def handle_account_request():
+    emit('account_data', {
+        "balance": 15450.75,
+        "pnl": 125.5
+    })
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=Config.PORT)
+    socketio.run(app, host='0.0.0.0', port=5000)
